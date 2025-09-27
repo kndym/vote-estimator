@@ -1,0 +1,6 @@
+*.png
+*.feather
+*.csv
+graph_shapes/*
+*.pickle
+*.gpickle

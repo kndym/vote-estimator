@@ -1,6 +1,7 @@
 *.png
 *.feather
 *.csv
+*.gpkg
 graph_shapes/*
 *.pickle
 *.gpickle

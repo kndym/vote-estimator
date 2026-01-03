@@ -1,7 +1,7 @@
 """
-Build a rook adjacency graph from block group shapefile.
+Build a rook adjacency graph from block group GeoPackage or shapefile.
 
-- Input: block_groups.shp (polygon shapefile of block groups)
+- Input: block_groups.gpkg or block_groups.shp (polygon GeoPackage/shapefile of block groups)
 - Output:
     - blockgroups_graph.gpickle (NetworkX graph object)
     - adjacency_edges.csv (edge list)
@@ -9,6 +9,7 @@ Build a rook adjacency graph from block group shapefile.
 
 Each node = block group, each edge = rook adjacency (shared boundary).
 Optimized for >10,000 polygons using spatial join.
+Supports filtering to NY state (FIPS code 36) when using GPKG format.
 """
 
 import geopandas as gpd
@@ -119,19 +120,29 @@ def quick_plot(gdf, edges, outpath="quick_plot.png"):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build a rook adjacency graph from a polygon shapefile.")
-    parser.add_argument("shapefile", help="Path to the input polygon shapefile.")
+    parser = argparse.ArgumentParser(description="Build a rook adjacency graph from a polygon GeoPackage or shapefile.")
+    parser.add_argument("geofile", help="Path to the input polygon GeoPackage (.gpkg) or shapefile (.shp).")
     parser.add_argument("--simplify", type=float, default=None, help="Optional simplification tolerance in CRS units.")
     parser.add_argument("--graph_out", default="blockgroups_graph.gpickle", help="Path for the output graph file.")
     parser.add_argument("--edges_out", default="adjacency_edges.csv", help="Path for the output edges CSV file.")
     parser.add_argument("--plot_out", default="quick_plot.png", help="Path for the output plot image.")
     parser.add_argument("--map_out", default="input_map.png", help="Path for the output initial map image.")
+    parser.add_argument("--filter-ny", action="store_true", help="Filter to NY state only (GEOID20 starts with '36').")
     args = parser.parse_args()
 
-    # Load shapefile and set CRS
-    print("Loading shapefile...")
-    gdf = gpd.read_file(args.shapefile).to_crs(epsg=3857)
+    # Load GeoPackage or shapefile and set CRS
+    print(f"Loading geospatial file: {args.geofile}...")
+    gdf = gpd.read_file(args.geofile).to_crs(epsg=3857)
     print(f"Loaded {len(gdf)} polygons.")
+    
+    # Filter to NY state if requested (check GEOID20 starts with '36')
+    if args.filter_ny:
+        if 'GEOID20' in gdf.columns:
+            initial_count = len(gdf)
+            gdf = gdf[gdf['GEOID20'].astype(str).str.startswith('36')]
+            print(f"Filtered to NY state: {len(gdf)} polygons (from {initial_count}).")
+        else:
+            print("Warning: --filter-ny specified but GEOID20 column not found. Proceeding without filtering.")
 
     G, gdf, neighbors = build_rook_graph(gdf, simplify_tolerance=args.simplify)
 

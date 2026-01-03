@@ -35,7 +35,6 @@ def main():
     parser = argparse.ArgumentParser(description="Prepare data for spatial voting simulation.")
     parser.add_argument("main_data_csv", help="Path to the main data CSV with vote and demographic info.")
     parser.add_argument("graph_file", help="Path to the blockgroups_graph.gpickle file.")
-    parser.add_argument("exit_poll_csv", help="Path to the national exit poll data CSV.")
     parser.add_argument("output_path", help="Path to save the prepared output file (e.g., data.feather).")
     parser.add_argument("--output-mode", choices=['logit', 'prob'], default='logit', help="Output mode: 'logit' or 'prob'.")
     args = parser.parse_args()
@@ -45,14 +44,20 @@ def main():
     # --- 2. Load All Input Data ---
     print(f"Loading main data from {args.main_data_csv}...")
     df = pd.read_csv(args.main_data_csv, dtype={'AFFGEOID': str})
+    
+    # Filter to NY state only (new_state == 36)
+    if 'new_state' in df.columns:
+        initial_count = len(df)
+        df = df[df['new_state'] == 36]
+        print(f"Filtered to NY state: {len(df)} rows (from {initial_count}).")
+    else:
+        print("Warning: 'new_state' column not found. Proceeding without state filtering.")
+    
     df.set_index('AFFGEOID', inplace=True)
 
     print(f"Loading graph from {args.graph_file}...")
     with open(args.graph_file, 'rb') as f:
         G = pickle.load(f)
-
-    print(f"Loading exit poll data from {args.exit_poll_csv}...")
-    exit_polls_df = pd.read_csv(args.exit_poll_csv).set_index('Demographic')
 
     # --- 3. Build Adjacency Dictionary ---
     print("Building adjacency dictionary from graph...")
@@ -112,26 +117,24 @@ def main():
         df['real_N_prob'] = df['real_N_share']
         df['real_O_prob'] = df['real_O_share']
 
-    # --- 5. Initialize Demographic-Specific Values from Exit Polls ---
+    # --- 5. Initialize Demographic-Specific Values using (row sum * column sum) / total^2 ---
+    # For each block group: initialize each demographic's vote probabilities
+    # Formula: prob = (votes_vote_type * cvap_total) / (cvap_total^2) = votes_vote_type / cvap_total
+    # This initializes all demographics with the same probabilities (block group's overall vote shares)
+    print("Initializing demographic-specific values using (votes_vote_type * cvap_total) / (cvap_total^2) method...")
+    
     for demo in demographics:
-        d_share = exit_polls_df.loc[demo, 'D_share']
-        r_share = exit_polls_df.loc[demo, 'R_share']
-        o_share = exit_polls_df.loc[demo, 'O_share']
-        turnout = exit_polls_df.loc[demo, 'Turnout_share']
+        # For each vote type, initialize probability as: (votes_vtype * cvap_total) / (cvap_total^2)
+        # This simplifies to: prob = votes_vtype / cvap_total (same for all demographics initially)
         
-        p_d = d_share * turnout
-        p_r = r_share * turnout
-        p_o = o_share * turnout
-        p_n = 1 - turnout
-
         if args.output_mode == 'logit':
-            df[f'D_{demo}_logit'] = logit(p_d)
-            df[f'R_{demo}_logit'] = logit(p_r)
-            df[f'N_{demo}_logit'] = logit(p_n)
+            df[f'D_{demo}_logit'] = logit(df['real_D_share'])
+            df[f'R_{demo}_logit'] = logit(df['real_R_share'])
+            df[f'N_{demo}_logit'] = logit(df['real_N_share'])
         else: # prob mode
-            df[f'D_{demo}_prob'] = p_d
-            df[f'R_{demo}_prob'] = p_r
-            df[f'N_{demo}_prob'] = p_n
+            df[f'D_{demo}_prob'] = df['real_D_share']
+            df[f'R_{demo}_prob'] = df['real_R_share']
+            df[f'N_{demo}_prob'] = df['real_N_share']
 
     # --- 6. Save the Prepared Data ---
     print(f"Preparation complete. Saving output to {args.output_path}...")

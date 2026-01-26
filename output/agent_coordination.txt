@@ -1,0 +1,63 @@
+=== AGENT COORDINATION (append only) ===
+
+---
+2026-01-26T02:11:18.548429+00:00 | Agent / Method ID: kv-neighblend
+PLAN:
+  Method: Neighbor-blend L2 logit + low-pop noise
+  Description: L2 data-fit in logit space with per-iter neighbor blending in prob space and low-pop Dirichlet noise.
+  Hyperparameters: iterations=200, learning_rate=0.01, smoothing_rate=0.2, low_pop_threshold=10, noise_weight=0.15, noise_every=5
+  Script: scripts/mle_agent_kv_neighbor_blend.py
+  Status: CLAIMED
+---
+=== AGENT COORDINATION (append only) ===
+---
+2026-01-25T21:11:01.7596077-05:00 | Agent / Method ID: klspatial_v1
+PLAN:
+  Method: L2 data fit + symmetric neighbor KL smoothing (logit space)
+  Description: Optimize probabilities to fit votes while enforcing neighbor similarity via symmetric KL
+  Hyperparameters: spatial_weight=0.2, learning_rate=0.01, iterations=200, low_pop_threshold=10, last_n_avg=20, prior_blend=False
+  Script: scripts/mle_agent_kl_spatial.py
+  Status: CLAIMED
+---
+=== AGENT COORDINATION (append only) ===
+
+---
+2026-01-25T21:10:09.7979876-05:00 | Agent / Method ID: PWLE-QN1
+PLAN:
+  Method: Population-weighted L2 logit + entropy prior
+  Description: L2 data fit with population-weighted spatial smoothing and low-pop entropy regularization.
+  Hyperparameters: spatial_weight=0.2, entropy_weight=0.05, learning_rate=0.01, iterations=150, low_pop_threshold=10, last_n_avg=20
+  Script: scripts/mle_agent_pwle_queens.py
+  Status: CLAIMED
+---
+=== AGENT COORDINATION (append only) ===
+---
+2026-01-25T21:08:56.8058266-05:00 | Agent / Method ID: kv-lapent
+PLAN:
+  Method: Laplacian + entropy-regularized least squares (prob space)
+  Description: Fit U≈V with graph Laplacian smoothing and entropy regularization to avoid collapse.
+  Hyperparameters: iterations=300, learning_rate=0.02, spatial_weight=0.4, entropy_weight=0.02, noise_scale=0.005
+  Script: scripts/mle_agent_kv_lapent.py
+  Status: CLAIMED
+---
+=== AGENT COORDINATION (append only) ===
+---
+2026-01-25T22:30:00-05:00 | Agent / Method ID: kv-projsmooth
+PLAN:
+  Method: Projected-gradient with neighbor averaging (prob space)
+  Description: Projected L2 data-fit with per-iter neighbor averaging and low-pop Dirichlet noise.
+  Hyperparameters: iterations=120, learning_rate=0.15, spatial_alpha=0.2, low_pop_threshold=25, low_pop_blend=0.15
+  Script: scripts/mle_agent_qns_projected_smooth.py
+  Status: CLAIMED
+---
+---
+2026-01-25T22:35:00-05:00 | Agent / Method ID: kv-projsmooth
+RESULTS:
+  Method: Projected-gradient with neighbor averaging (prob space)
+  Script: scripts/mle_agent_qns_projected_smooth.py
+  Output CSV: output/mle_agent_qns_projected_smooth_s42.csv
+  Baseline comparison: MAE_vs_baseline=0.668208, MAE_U_V=207.916545, runtime_sec=1.54
+  Sanity: OUTLIERS=FAIL, VARIANCE=PASS, SPATIAL_GLOBAL=PASS
+  Notes: Seeds 123/456 similar MAE_vs_baseline=0.661036/0.647810; OUTLIERS=FAIL for all. Cmd: python scripts/mle_agent_qns_projected_smooth.py mle_results_with_predictions.csv --output output/mle_agent_qns_projected_smooth_s42.csv --seed 42
+  Status: DONE
+---

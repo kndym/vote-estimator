@@ -1,0 +1,198 @@
+================================================================================
+AGENT PROMPT: EI METHODOLOGY TESTING (QUEENS)
+================================================================================
+Save this to a .txt you can copy-paste from. Use for multi-agent EI testing.
+
+--------------------------------------------------------------------------------
+YOUR ROLE
+--------------------------------------------------------------------------------
+You are one of several agents testing different ecological inference (EI)
+methodologies. Propose a new method, implement it in a new script, run it on
+Queens only, self-evaluate via automated sanity checks, and log everything in a
+shared coordination file. Do not duplicate other agents' methods or
+hyperparameter sweeps.
+
+--------------------------------------------------------------------------------
+CONTROLLER AND STOP SIGNAL
+--------------------------------------------------------------------------------
+A controller script (scripts/controller_agent_stop.py) runs for up to 1 hour,
+writes output/controller_announcements.txt, and may announce STOP. You MUST:
+
+- READ output/controller_announcements.txt BEFORE claiming a plan and BEFORE
+  starting a new method.
+- If it says "STOP": do NOT start new methods. Stop working. Do not append
+  new PLAN or RESULTS.
+- If it says "KEEP GOING": use the "Steer toward best implementation" section
+  to prefer similar approaches to the current best when choosing what to try.
+
+--------------------------------------------------------------------------------
+MANDATORY WORKFLOW
+--------------------------------------------------------------------------------
+1. READ output/controller_announcements.txt. If STOP, do not proceed.
+2. READ the coordination TXT file (output/agent_coordination.txt).
+3. APPEND your plan: method name, one-line description, key hyperparameters you
+   will try, and that you are claiming this setup.
+4. RUN your method (new script, Queens only).
+5. APPEND your results: same format as others, plus pass/fail on sanity checks
+   and comparison to baseline.
+
+Coordination file: output/agent_coordination.txt
+Use a STRUCTURED format (see below).
+
+--------------------------------------------------------------------------------
+COORDINATION FILE FORMAT (STRUCTURED)
+--------------------------------------------------------------------------------
+Read the file first, then append. Use this structure:
+
+=== AGENT COORDINATION (append only) ===
+
+---
+[ISO timestamp] | Agent / Method ID: <short_id>
+PLAN:
+  Method: <e.g. L2 logit with X>
+  Description: <one line>
+  Hyperparameters: <e.g. spatial_weight=0.1, learning_rate=0.01, ...>
+  Script: <path e.g. scripts/mle_agent1_xyz.py>
+  Status: CLAIMED
+---
+
+---
+[ISO timestamp] | Agent / Method ID: <same short_id>
+RESULTS:
+  Method: <same>
+  Script: <same>
+  Output CSV: <path>
+  Baseline comparison: MAE_vs_baseline=..., MAE_U_V=..., runtime_sec=...
+  Sanity: OUTLIERS=<PASS|FAIL>, VARIANCE=<PASS|FAIL>, SPATIAL_GLOBAL=<PASS|FAIL>
+  Notes: <optional>
+  Status: DONE
+---
+
+- Claim a distinct method/hyperparameter combo so no one else duplicates.
+- Append only; do not delete or overwrite others' entries.
+
+--------------------------------------------------------------------------------
+METHOD REQUIREMENTS
+--------------------------------------------------------------------------------
+
+Initialization:
+  - ALWAYS use flat Dirichlet for probability vectors: sample i.i.d. Uniform(0,1)
+    per vote type, then normalize to sum to 1 per (precinct, demographic).
+
+Neighbors:
+  - "Neighboring" = same demographic across geographically adjacent precincts
+    (rook adjacency from the graph).
+  - Encourage similar probability vectors for the same demographic in
+    neighboring precincts (e.g. spatial smoothing term, prior, or
+    regularization). Exact mechanism is up to you.
+
+Low-pop (guidance, not strict):
+  - Low-pop (precinct, demo) cells contribute little to the cost. You may
+    introduce noise throughout so they resemble weak/flat priors rather than
+    staying at init. This is a design hint; outputs are what matter.
+
+Constraints:
+  - Do NOT modify prepare_data.py or graph-building code.
+  - Do NOT change existing MLE/optimization scripts. Add NEW scripts only
+    (e.g. scripts/mle_agent_<id>_<name>.py).
+
+--------------------------------------------------------------------------------
+DATA AND EVALUATION
+--------------------------------------------------------------------------------
+- Geography: Queens only (GEOID 36081). Same subset and graph as in the repo.
+- Baseline: Compare to mle_l2_logit_results.csv (or output/mle_l2_logit_results.csv
+  if using reorganized layout). Pre-compute metrics for all past methods and
+  save them so agents can compare.
+
+--------------------------------------------------------------------------------
+SANITY CHECKS (AUTOMATED, SELF-EVALUATE)
+--------------------------------------------------------------------------------
+Run these on your output CSV (same schema as baseline: AFFGEOID, *_prob, etc.).
+Implement in e.g. scripts/evaluate_queens_sanity.py and run it yourself. Report
+PASS/FAIL in the coordination file.
+
+1) OUTLIER CHECK (vs. neighbors)
+   - For each (precinct, demographic): margin = (D-R)/(D+R+O) from *_prob.
+   - Compare to geographic neighbors: mean neighbor margin per (precinct, demo).
+   - FLAG if |margin - mean(neighbor margins)| > 0.50 for that (precinct, demo).
+   - EXCLUDE from "outlier" verdict: precincts on the boundary between two
+     distinct communities. Heuristic: if the precinct has neighbors in two
+     clearly different margin clusters (e.g. bimodal neighbor distribution),
+     treat as boundary and do not count as fail.
+   - PASS: no non-boundary outlier flagged. FAIL: any non-boundary outlier.
+
+2) NO COLLAPSE (variance)
+   - Per demographic, variance of e.g. p_D (or margin) across precincts.
+   - PASS: all demographics have variance > 0.05 (5%). FAIL: any ≤ 5%.
+
+3) SPATIAL VS. GLOBAL CORRELATION
+   - Spatial autocorrelation: e.g. Moran's I for margin (or p_D) per demo using
+     adjacency.
+   - Global correlation: e.g. correlation of (precinct, demo) margins with a
+     single global mean margin (or similar).
+   - PASS: not "bad" — i.e. NOT (very low spatial autocorr AND very high
+     global corr). FAIL: e.g. spatial autocorr < 0.1 AND global corr > 0.9.
+   - Goal: high spatial autocorr, low global corr. Very low autocorr + very
+     high global = bad.
+
+--------------------------------------------------------------------------------
+METRICS TO REPORT
+--------------------------------------------------------------------------------
+At minimum:
+  - MAE(U, V) or equivalent data-fit.
+  - MAE vs. baseline (e.g. mean absolute difference between your implied
+    margins/probs and baseline's over Queens).
+  - Runtime (seconds).
+  - Sanity: OUTLIERS, VARIANCE, SPATIAL_GLOBAL (each PASS/FAIL).
+
+Optional: per-demo MAE, max margin, Moran's I per demo, etc. Numerical metric
+rules beyond the above are at your discretion.
+
+--------------------------------------------------------------------------------
+REPRODUCIBILITY
+--------------------------------------------------------------------------------
+- Use a fixed seed (e.g. 42) for "random from noise" (flat Dirichlet) init.
+- Also run with multiple seeds (e.g. 42, 123, 456) and report whether results
+  are similar or sensitive.
+- Log in coordination: exact script path, command-line args, and seed(s).
+
+--------------------------------------------------------------------------------
+PRE-COMPUTED BASELINE AND PAST METHODS
+--------------------------------------------------------------------------------
+Before any agent runs new methods:
+  1. Evaluate mle_l2_logit_results.csv (and any other past method outputs) on
+     Queens using the same sanity checks and metrics above.
+  2. Save those results (e.g. output/baseline_and_past_metrics.txt) so all
+     agents can read them and compare.
+
+Agents must read this file to avoid re-running baseline and to compare against
+past methods.
+
+--------------------------------------------------------------------------------
+CHECKLIST (EACH AGENT)
+--------------------------------------------------------------------------------
+[ ] Read output/controller_announcements.txt. If STOP, stop; do not proceed.
+[ ] Read output/agent_coordination.txt.
+[ ] Append PLAN (method, params, script, CLAIMED).
+[ ] Implement NEW script only; flat Dirichlet init; neighbor similarity via
+    geography.
+[ ] Run on Queens only; same data/graph.
+[ ] Run evaluator (sanity checks); record OUTLIERS, VARIANCE, SPATIAL_GLOBAL.
+[ ] Compute metrics (MAE(U,V), MAE vs. baseline, runtime).
+[ ] Append RESULTS to coordination file (method, script, output CSV, metrics,
+    sanity, seeds).
+[ ] Document exact command and seed(s).
+
+--------------------------------------------------------------------------------
+OPTIONAL CLARIFICATIONS TO ADD
+--------------------------------------------------------------------------------
+- Baseline CSV path: output/mle_l2_logit_results.csv vs. project-root
+  mle_l2_logit_results.csv — state explicitly in your run.
+- Boundary heuristic: refine "boundary between two distinct communities" (e.g.
+  cluster neighbor margins, then label boundary precincts) if needed.
+- SPATIAL_GLOBAL thresholds: replace "autocorr < 0.1 and global corr > 0.9"
+  with your preferred cutoffs after inspecting runs.
+- Evaluator: e.g. scripts/evaluate_queens_sanity.py; agents run it on their
+  output CSV.
+
+================================================================================

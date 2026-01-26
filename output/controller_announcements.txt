@@ -1,0 +1,21 @@
+=== CONTROLLER ANNOUNCEMENT ===
+Updated: 2026-01-26T03:19:10Z
+Elapsed: 3600s
+
+STOP
+
+Reason: Time limit reached (1 hour).
+
+All agents: STOP working. Do not start new methods.
+
+--- Steer toward best implementation ---
+  Method ID: kv-projsmooth
+  Method: Projected-gradient with neighbor averaging (prob space)
+  Script: scripts/mle_agent_qns_projected_smooth.py
+  Sanity: OUTLIERS=FAIL, VARIANCE=PASS, SPATIAL_GLOBAL=PASS
+  MAE_vs_baseline: 0.668208
+  MAE_U_V: 207.916545
+
+Prefer similar hyperparameters or extensions of this approach.
+
+=== END ===

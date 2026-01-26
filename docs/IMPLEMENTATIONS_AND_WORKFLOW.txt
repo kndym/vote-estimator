@@ -1,0 +1,301 @@
+================================================================================
+VOTE-ESTIMATOR: IMPLEMENTATIONS TESTED, WEAKNESSES, AND DATA WORKFLOW
+================================================================================
+Last updated: 2025-01-24
+
+--------------------------------------------------------------------------------
+1. CANONICAL MAIN DATA CSV (INPUT TO mle_l2_logit_analytical.py)
+--------------------------------------------------------------------------------
+
+  C:\Users\Kevin\OneDrive\Documents\Past Projects\Block Group Work\Merged_Blk_CVAP_Debug_Block_Group.csv
+
+This is the primary main-data CSV used for mle_l2_logit_analytical.py. Other
+scripts that accept "main data CSV" (prepare_data.py, main_mle.py) expect the
+same schema.
+
+Example run (L2 analytical, all-NY, low-pop options). Run from project root:
+
+  python scripts/mle_l2_logit_analytical.py "C:\Users\Kevin\OneDrive\Documents\Past Projects\Block Group Work\Merged_Blk_CVAP_Debug_Block_Group.csv" blockgroups_graph_correct.gpickle --output output/mle_l2_logit_results_ny.csv --iterations 500 --last-n-avg 20
+
+--------------------------------------------------------------------------------
+2. REQUIRED COLUMNS IN MAIN DATA CSV
+--------------------------------------------------------------------------------
+
+Scripts assume:
+
+  - AFFGEOID (str): Census block group ID, e.g. "1500000US360810001001"
+  - cvap_est_White Alone, cvap_est_Hispanic or Latino, cvap_est_Black or
+    African American Alone, cvap_est_Asian Alone, cvap_est_American Indian or
+    Alaska Native Alone, cvap_est_Native Hawaiian or Other Pacific Islander
+    Alone, cvap_est_Mixed  --> mapped to cvap_Wht, cvap_His, cvap_Blk, cvap_Asn,
+    cvap_aian, cvap_nhpi, cvap_sor. cvap_Oth = aian + nhpi + sor.
+  - D_Votes_2020, R_Votes_2020, O_Votes_2020 (vote counts)
+  - votes_N = cvap_total - (D+R+O), clipped >= 0
+
+Optional:
+  - new_state: used by prepare_data.py, calculate_vote_counts_by_race.py to
+    filter to NY (36) when present.
+
+If Merged_Blk_CVAP_Debug_Block_Group.csv uses different column names, either
+rename columns or update the prepare_data_step / column_mapping logic in the
+scripts that read it.
+
+--------------------------------------------------------------------------------
+3. DATA AND FILE WORKFLOW
+--------------------------------------------------------------------------------
+
+Project layout:
+  - scripts/     All Python entrypoints (mle_*, prepare_data, graph, etc.)
+  - output/      Default directory for CSVs, plots, graph, feather (created as needed)
+  - docs/        IMPLEMENTATIONS_AND_WORKFLOW.txt, mle_analysis_summary.md
+
+High-level flow (run scripts from project root, e.g. python scripts/...):
+
+  [Main data CSV]  ──┬──► [scripts/prepare_data.py] ──► output/data.feather
+  [Graph gpickle]  ──┘         │
+                               │
+       ┌───────────────────────┼───────────────────────┐
+       │                       │                       │
+       ▼                       ▼                       ▼
+  [simulation_sparse*.py]  [optimize_gradient_   [mle_dirichlet_   [mle_*]
+  [mle_probability_vectors]   descent.py]           gradient.py]
+       │                       │                       │
+       ▼                       ▼                       ▼
+  output/.../final_         output/estimates.csv  output/mle_      output/mle_*
+  estimates.feather           (vote counts)        dirichlet_*.csv  _results.csv
+
+Standalone path (no prepare_data):
+
+  [Main data CSV]  ──┬──► [scripts/mle_l2_logit_analytical.py] ──► output/mle_l2_logit_results.csv
+  [Graph gpickle]  ──┘    [scripts/main_mle.py]                  ──► output/mle_probability_vectors.csv
+
+  mle_l2_logit_analytical.py and main_mle.py read the main data CSV directly
+  (and build vote/cvap columns internally). They do not use prepare_data.py.
+
+Graph file:
+
+  - scripts/graph.py builds a rook-adjacency graph from a GeoPackage/shapefile.
+    Default outputs: output/blockgroups_graph.gpickle, output/adjacency_edges.csv,
+    output/quick_plot.png, output/input_map.png.
+  - Two graph variants may exist:
+      * blockgroups_graph.gpickle (integer nodes): incompatible with MLE scripts.
+      * blockgroups_graph_correct.gpickle (GEOID nodes): use for mle_l2, all-NY.
+
+  - Scripts that use the graph expect nodes = GEOID (AFFGEOID = "1500000US" + GEOID).
+    Data rows are matched to graph via AFFGEOID.
+
+Post-processing (downstream of MLE/probability outputs):
+
+  - scripts/create_results_with_predictions.py: reads MLE CSV with *_{demo}_prob,
+    adds pred_margin_{demo}, pred_turnout_{demo}. Input e.g. output/mle_l2_logit_results.csv.
+  - scripts/remove_columns.py: strips "neighbors" and all *_prob columns from a CSV.
+  - scripts/plot_probability_distributions.py: reads MLE CSV, plots by demo/vote type
+    (weighted by cvap). Default input: output/mle_l2_logit_results.csv;
+    output dir: output/plots.
+  - scripts/aggregate_to_county.py: reads CSV with votes_* (e.g. output/estimates.csv),
+    aggregates to county, writes output/county_vote_counts.csv.
+
+--------------------------------------------------------------------------------
+4. IMPLEMENTATIONS TESTED AND WEAKNESSES
+--------------------------------------------------------------------------------
+
+4.1  mle_l2_logit_analytical.py (L2 in logit space) [PRIMARY / RECOMMENDED]
+
+  What it does:
+    - Minimizes ||U - V||^2 + spatial_weight * spatial_smoothing.
+    - U = sum over demos of p * D (predicted votes); V = preprocessed vote
+      totals. Spatial term = L2 between neighbor-averaged p and local p.
+    - Optimizes in logit space (softmax to probs), Adam, analytical gradients.
+    - Optional low-pop handling: last-N-iter average for (precinct,demo) cells
+      with D < threshold; optional prior-blend with demographic-specific prior.
+
+  Inputs: main data CSV, graph gpickle (GEOID-based, e.g. output/blockgroups_graph.gpickle
+          or blockgroups_graph_correct.gpickle).
+  Output: CSV (default output/mle_l2_logit_results.csv) with all input columns
+          plus D/R/O/N_{Wht,His,Blk,Asn,Oth}_prob.
+
+  Weaknesses:
+    - Low-pop cells (e.g. 0–10 Whites): without last-N-avg, probability
+      vectors can look random. Use --last-n-avg and optionally --prior-blend.
+    - Prior = mean p over precincts per demo; not data-derived. Prior-blend
+      alpha = f(D) can be tuned.
+    - D used for thresholding is post-preprocess (floored to 1, etc.). Raw
+      cvap threshold in "real" units may need different scaling if preprocess
+      changes.
+    - All-NY runs need 500+ iterations for good U≈V fit; defaults tune for
+      smaller runs.
+    - O (other) vote share often slightly high vs. true ~0.5–1%; remainder
+      typically close.
+
+  Tested: Queens-only (historical), all-NY with blockgroups_graph_correct.
+          Low-pop options: last-n-avg, prior-blend.
+
+--------------------------------------------------------------------------------
+4.2  main_mle.py (Dirichlet–multinomial MLE, combined prep + optimize)
+
+  What it does:
+    - Same prep idea as prepare_data (cvap, votes from main CSV + graph).
+    - Filters to NY (geoid 36). MLE: log DirMult(U|V) + sum_demo log Dir(p_d|N_d).
+    - Spatial prior via neighbor-aggregated N_demo. Adam on logit-space params.
+
+  Inputs: main data CSV, graph gpickle.
+  Output: mle_probability_vectors.csv (with *_prob columns).
+
+  Weaknesses (see also mle_analysis_summary.md):
+    - Tendency to collapse toward uniform (~0.25 each) without heavy
+      dir-mult weighting and careful preprocessing.
+    - Spatial (Dirichlet) term easily dominates; identifiability issues (many
+      p configs give same U).
+    - O vote inflation if min vote handling is done before scaling.
+    - Optimization can diverge or stall. L2 logit (4.1) is more stable.
+
+  Tested: Queens; various dir-mult weights, preprocessing tweaks. L2 logit
+          preferred for production.
+
+--------------------------------------------------------------------------------
+4.3  mle_probability_vectors.py (standalone DirMult MLE)
+
+  What it does:
+    - Same DirMult + Dirichlet spatial setup as main_mle, but reads
+      prepare_data OUTPUT (feather), not raw CSV.
+
+  Inputs: prepared_data.feather, graph gpickle.
+  Output: mle_probability_vectors.csv.
+
+  Weaknesses: Same as main_mle. Effectively superseded by main_mle (single
+              entrypoint) or by mle_l2_logit_analytical.
+
+--------------------------------------------------------------------------------
+4.4  mle_dirichlet_gradient.py (Dirichlet α MLE, Monte Carlo)
+
+  What it does:
+    - Estimates Dirichlet parameters α per (block group, demographic).
+    - Samples from Dir(α), fills vote matrices, aggregates to neighborhoods,
+      optimizes Dirichlet-multinomial likelihood on neighborhood counts.
+    - Adam on log(α).
+
+  Inputs: prepared_data.feather, graph gpickle.
+  Output: mle_dirichlet_parameters.csv (alpha params in wide form).
+
+  Weaknesses:
+    - More complex (MC sampling, aggregation). Slower.
+    - Same identification / spatial-vs-data tension as other MLEs.
+    - Less validation reported than L2 logit.
+
+--------------------------------------------------------------------------------
+4.5  optimize_gradient_descent.py (vote counts in probability space)
+
+  What it does:
+    - Works on vote-count matrices (4 × 5 per block group). Gradient descent
+      in probability space with fundamental-circuit basis to enforce
+      row/column sums and non-negativity.
+    - Loss: data fit + spatial smoothing (neighbor similarity).
+
+  Inputs: prepared_data.feather, graph gpickle.
+  Output: estimates.csv (vote counts), diagnostics.csv.
+
+  Weaknesses:
+    - Consumes feather (prepare_data) not raw CSV. Different pipeline.
+    - Output is vote counts, not probabilities; downstream tools that expect
+      *_prob columns (e.g. create_results_with_predictions, plot_*) need
+      conversion or different handling.
+    - aggregate_to_county expects votes_* layout from this (or similar) output.
+
+--------------------------------------------------------------------------------
+4.6  simulation_sparse.py / simulation_sparse_diff.py
+
+  What they do:
+    - Iteratively adjust demographic voting estimates from prepared data.
+    - Match election results (internal consistency) + spatial cohesion.
+    - Logit (sparse) or probability (sparse_diff) space.
+
+  Inputs: prepared_data.feather, graph gpickle.
+  Output: final_estimates.feather, convergence plots.
+
+  Weaknesses:
+    - Depend on prepare_data; no direct main-CSV path.
+    - Less documented and less tuned than mle_l2_logit_analytical for
+      current use cases.
+
+--------------------------------------------------------------------------------
+4.7  prepare_data.py
+
+  What it does:
+    - Reads main data CSV + graph, filters NY (if new_state), builds
+      adjacency, computes vote shares. Writes feather (logit or prob).
+
+  Output: data.feather (or user-chosen path).
+
+  Used by: optimize_gradient_descent, mle_dirichlet_gradient, mle_
+           probability_vectors, simulation_sparse*, sample_vote_matrices.
+
+--------------------------------------------------------------------------------
+4.8  create_results_with_predictions.py, remove_columns.py, 
+     plot_probability_distributions.py, aggregate_to_county.py
+
+  See Section 3. These are downstream utilities. Their expectations (e.g.
+  *_prob vs votes_*) depend on which optimizer produced the CSV.
+
+--------------------------------------------------------------------------------
+5. GRAPH FILES: WHICH TO USE
+--------------------------------------------------------------------------------
+
+  - mle_l2_logit_analytical.py, main_mle.py, prepare_data.py, etc.:
+    Use a GEOID-based graph (e.g. output/blockgroups_graph.gpickle or
+    blockgroups_graph_correct.gpickle).
+  - blockgroups_graph.gpickle with integer nodes: do NOT use with MLE/prepare
+    pipelines. "No block groups overlap" error if you do.
+
+  Graph must be built from polygons whose GEOIDs match AFFGEOIDs in the main
+  data CSV (with "1500000US" prefix). graph.py --filter-ny for all-NY.
+
+--------------------------------------------------------------------------------
+6. GEOGRAPHY FILTERING
+--------------------------------------------------------------------------------
+
+  - mle_l2_logit_analytical.py, main_mle.py: filter to NY via AFFGEOID
+    startswith "1500000US36". No new_state required.
+  - prepare_data.py: filters on new_state == 36 if column exists.
+  - ensure main data CSV contains NY block groups (and optionally new_state)
+    if you rely on that filter.
+
+--------------------------------------------------------------------------------
+7. CLARIFYING QUESTIONS FOR OTHER AGENTS (BEFORE NEW IDEAS / IMPLEMENTATIONS)
+--------------------------------------------------------------------------------
+
+  Q1. Main data CSV
+      Are we always using Merged_Blk_CVAP_Debug_Block_Group.csv, or sometimes
+      a different file? Does it have cvap_est_* and D_Votes_2020 (and
+      AFFGEOID), or different names?
+
+  Q2. Graph
+      Which graph path is canonical for runs? blockgroups_graph_correct.gpickle
+      for all-NY? Is it built from the same geography as the main data (e.g.
+      same block group set)?
+
+  Q3. Geography
+      Queens-only vs. all-NY vs. other? Scripts currently hard-code NY
+      (36). Should we support other states or regions via CLI?
+
+  Q4. Output format
+      Do we need probabilities (*_prob) for create_results_with_predictions /
+      plot_*, or vote counts (votes_*) for aggregate_to_county? Or both, with
+      a clear pipeline per use case?
+
+  Q5. Low-pop behavior
+      Keep using last-N-avg and optional prior-blend for low-pop (precinct,demo)
+      cells? Any changes to threshold, N, or prior definition?
+
+  Q6. Preprocessing
+      D is floored to 1, V scaled to match demo totals. preserve zeros vs.
+      minimums: any constraints (e.g. never modify zero O votes in raw data)?
+
+  Q7. Evaluation
+      How is “good” output defined? MAE(U,V)? Demographic-level margins?
+      Correlation with external validation data? So we can compare new ideas.
+
+  Q8. Reproducibility
+      Default --seed 42; same main data + graph + flags should give same
+      results. Any other env/tooling requirements (Python version, geo stack)?
+
+================================================================================

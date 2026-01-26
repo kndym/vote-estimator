@@ -1,8 +1,8 @@
 import pandas as pd
 import os
 
-# Define the directory and file names
-results_dir = 'results_sparse_10'
+# Define the directory and file names (simulation_sparse* write to output_dir/final_estimates.feather)
+results_dir = 'output/results_sparse_10'
 feather_file = 'final_estimates.feather'
 csv_file = 'final_estimates_10.csv'
 
@@ -20,6 +20,9 @@ else:
         df[f'margin_{race.lower()}'] = (df[f'D_{race}_prob'] - df[f'R_{race}_prob'])/(df[f'D_{race}_prob'] + df[f'R_{race}_prob'] + 1e-6)
 
     # Write to a csv file
+    csv_dir = os.path.dirname(csv_path)
+    if csv_dir:
+        os.makedirs(csv_dir, exist_ok=True)
     df.to_csv(csv_path, index=False)
     
     print(f"Successfully converted {feather_path} to {csv_path}")

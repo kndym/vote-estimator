@@ -1,8 +1,9 @@
 # c:\Users\Kevin\Github\vote-estimator\visualize_in_qgis.py
+import argparse
+import os
+import pickle
 import geopandas as gpd
 import networkx as nx
-import pickle
-import argparse
 from shapely.geometry import Point, LineString
 from tqdm import tqdm
 
@@ -60,10 +61,14 @@ def export_graph_to_shapefiles(graph_file, nodes_out, edges_out, crs="EPSG:3857"
 def main():
     parser = argparse.ArgumentParser(description="Convert a NetworkX gpickle file to shapefiles for QGIS.")
     parser.add_argument("graph_file", help="Path to the input .gpickle file (e.g., blockgroups_graph.gpickle).")
-    parser.add_argument("--nodes_out", default="graph_nodes.shp", help="Path for the output nodes shapefile.")
-    parser.add_argument("--edges_out", default="graph_edges.shp", help="Path for the output edges shapefile.")
+    parser.add_argument("--nodes_out", default="output/graph_nodes.shp", help="Path for the output nodes shapefile.")
+    parser.add_argument("--edges_out", default="output/graph_edges.shp", help="Path for the output edges shapefile.")
     args = parser.parse_args()
 
+    for p in (args.nodes_out, args.edges_out):
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
     export_graph_to_shapefiles(args.graph_file, args.nodes_out, args.edges_out)
 
 if __name__ == "__main__":

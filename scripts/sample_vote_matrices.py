@@ -10,10 +10,11 @@ Input:
 Output:
     - CSV with Dirichlet parameters: AFFGEOID, demo, alpha_D, alpha_R, alpha_O, alpha_N
 """
+import argparse
+import os
+import pickle
 import pandas as pd
 import numpy as np
-import argparse
-import pickle
 import networkx as nx
 from tqdm import tqdm
 from scipy.sparse import csr_matrix
@@ -638,8 +639,8 @@ def main():
         help="Number of burn-in epochs (default: 100)."
     )
     parser.add_argument(
-        "--output", default="dirichlet_parameters.csv",
-        help="Output CSV path (default: dirichlet_parameters.csv)."
+        "--output", default="output/dirichlet_parameters.csv",
+        help="Output CSV path (default: output/dirichlet_parameters.csv)."
     )
     parser.add_argument(
         "--seed", type=int, default=None,
@@ -706,6 +707,9 @@ def main():
             row[f'{demo}_alpha_N'] = dirichlet_params[i, j, 3]
         output_data.append(row)
     
+    outdir = os.path.dirname(args.output)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     output_df = pd.DataFrame(output_data)
     output_df.to_csv(args.output, index=False)
     

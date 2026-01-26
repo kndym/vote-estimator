@@ -19,10 +19,11 @@ Input:
 Output:
     - CSV with Dirichlet parameters: AFFGEOID, Wht_alpha_D, Wht_alpha_R, etc. (wide format)
 """
+import argparse
+import os
+import pickle
 import pandas as pd
 import numpy as np
-import argparse
-import pickle
 import networkx as nx
 from tqdm import tqdm
 from scipy.sparse import csr_matrix
@@ -822,8 +823,8 @@ def main():
         help="Strength of hierarchical smoothing (0-1, default: 0.1)."
     )
     parser.add_argument(
-        "--output", default="mle_dirichlet_parameters.csv",
-        help="Output CSV path (default: mle_dirichlet_parameters.csv)."
+        "--output", default="output/mle_dirichlet_parameters.csv",
+        help="Output CSV path (default: output/mle_dirichlet_parameters.csv)."
     )
     parser.add_argument(
         "--seed", type=int, default=None,
@@ -901,6 +902,9 @@ def main():
             row[f'{demo}_alpha_N'] = alpha[i, j, 3]
         output_data.append(row)
     
+    outdir = os.path.dirname(args.output)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     output_df = pd.DataFrame(output_data)
     output_df.to_csv(args.output, index=False)
     

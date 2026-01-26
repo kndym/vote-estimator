@@ -12,7 +12,7 @@ DEMOGRAPHICS = ['Wht', 'His', 'Blk', 'Asn', 'Oth']
 VOTE_TYPES = ['D', 'R', 'O', 'N']
 COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']  # Blue, Orange, Green, Red
 
-def plot_distributions(csv_file, output_dir='plots'):
+def plot_distributions(csv_file, output_dir='output/plots'):
     """Plot probability distributions by demographic and vote type, weighted by demographic population."""
     print(f"Loading data from {csv_file}...")
     df = pd.read_csv(csv_file, index_col=0)
@@ -223,10 +223,10 @@ def plot_distributions(csv_file, output_dir='plots'):
 
 def main():
     parser = argparse.ArgumentParser(description="Plot probability distributions by demographic and vote type")
-    parser.add_argument("csv_file", nargs='?', default="mle_l2_logit_results.csv",
-                       help="Input CSV file with probability columns (default: mle_l2_logit_results.csv)")
-    parser.add_argument("--output-dir", default="plots",
-                       help="Output directory for plots (default: plots)")
+    parser.add_argument("csv_file", nargs='?', default="output/mle_l2_logit_results.csv",
+                       help="Input CSV file with probability columns (default: output/mle_l2_logit_results.csv)")
+    parser.add_argument("--output-dir", default="output/plots",
+                       help="Output directory for plots (default: output/plots)")
     args = parser.parse_args()
     
     plot_distributions(args.csv_file, args.output_dir)

@@ -9,10 +9,11 @@ demographic, and vote type. Outputs a pivot table format.
 - Output:
     - CSV file with county-level aggregated vote counts in pivot table format
 """
+import argparse
+import os
+import sys
 import pandas as pd
 import numpy as np
-import argparse
-import sys
 
 def extract_county_fips(affgeoid):
     """
@@ -48,7 +49,7 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default="county_vote_counts.csv",
+        default="output/county_vote_counts.csv",
         help="Path for output CSV file with county-level aggregated vote counts."
     )
     parser.add_argument(
@@ -160,6 +161,9 @@ def main():
     pivot_df = pivot_df.sort_values(['county_fips', 'demographic'])
     
     # Save to CSV
+    outdir = os.path.dirname(args.output)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     print(f"Saving pivot table to {args.output}...")
     pivot_df.to_csv(args.output, index=False)
     

@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib import collections as mc
 from tqdm import tqdm
 import argparse
+import os
 import pickle
 
 
@@ -123,10 +124,10 @@ def main():
     parser = argparse.ArgumentParser(description="Build a rook adjacency graph from a polygon GeoPackage or shapefile.")
     parser.add_argument("geofile", help="Path to the input polygon GeoPackage (.gpkg) or shapefile (.shp).")
     parser.add_argument("--simplify", type=float, default=None, help="Optional simplification tolerance in CRS units.")
-    parser.add_argument("--graph_out", default="blockgroups_graph.gpickle", help="Path for the output graph file.")
-    parser.add_argument("--edges_out", default="adjacency_edges.csv", help="Path for the output edges CSV file.")
-    parser.add_argument("--plot_out", default="quick_plot.png", help="Path for the output plot image.")
-    parser.add_argument("--map_out", default="input_map.png", help="Path for the output initial map image.")
+    parser.add_argument("--graph_out", default="output/blockgroups_graph.gpickle", help="Path for the output graph file.")
+    parser.add_argument("--edges_out", default="output/adjacency_edges.csv", help="Path for the output edges CSV file.")
+    parser.add_argument("--plot_out", default="output/quick_plot.png", help="Path for the output plot image.")
+    parser.add_argument("--map_out", default="output/input_map.png", help="Path for the output initial map image.")
     parser.add_argument("--filter-ny", action="store_true", help="Filter to NY state only (GEOID20 starts with '36').")
     args = parser.parse_args()
 
@@ -149,6 +150,10 @@ def main():
     print(f"Graph built with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
 
     # Save outputs
+    for p in (args.graph_out, args.edges_out, args.plot_out, args.map_out):
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
     print(f"Saving graph to {args.graph_out}...")
     with open(args.graph_out, 'wb') as f:
         pickle.dump(G, f, pickle.HIGHEST_PROTOCOL)

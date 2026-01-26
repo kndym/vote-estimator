@@ -9,9 +9,10 @@ This script:
 5. Outputs summary statistics and a CSV with detailed counts
 """
 
+import argparse
+import os
 import pandas as pd
 import numpy as np
-import argparse
 
 def load_and_prepare_data(estimates_csv, demographic_csv):
     """
@@ -167,17 +168,17 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default="vote_counts_by_race.csv",
+        default="output/vote_counts_by_race.csv",
         help="Path for output CSV file with detailed counts."
     )
     parser.add_argument(
         "--summary-output",
-        default="vote_counts_summary.csv",
+        default="output/vote_counts_summary.csv",
         help="Path for summary CSV file with aggregated totals."
     )
     parser.add_argument(
         "--pivot-output",
-        default="vote_counts_pivot.csv",
+        default="output/vote_counts_pivot.csv",
         help="Path for pivot table CSV file."
     )
     args = parser.parse_args()
@@ -192,6 +193,10 @@ def main():
     summary_df, pivot_df = aggregate_totals(result_df)
     
     # Save detailed results
+    for p in (args.output, args.summary_output, args.pivot_output):
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
     print(f"\nSaving detailed results to {args.output}...")
     result_df.to_csv(args.output, index=False)
     print(f"  Saved {len(result_df)} block groups with vote counts.")

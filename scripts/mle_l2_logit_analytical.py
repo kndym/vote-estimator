@@ -9,6 +9,7 @@ import networkx as nx
 from scipy.sparse import csr_matrix
 from tqdm import tqdm
 import argparse
+import os
 import pickle
 
 # Constants
@@ -32,9 +33,9 @@ def prepare_data_step(main_data_csv, graph_file):
     df = pd.read_csv(main_data_csv, dtype={'AFFGEOID': str})
     df.set_index('AFFGEOID', inplace=True)
     
-    # Filter to Queens, NY (FIPS 36081)
-    df = df[df.index.str.contains('36081', na=False)]
-    print(f"Filtered to Queens, NY (county FIPS 36081): {len(df)} rows.")
+    # Filter to all of New York state (AFFGEOID starts with 1500000US36)
+    df = df[df.index.str.startswith('1500000US36', na=False)]
+    print(f"Filtered to New York state: {len(df)} rows.")
     
     print(f"Loading graph from {graph_file}...")
     with open(graph_file, 'rb') as f:
@@ -210,13 +211,29 @@ def adam_update(gradients, m, v, iteration, learning_rate=0.001, beta1=0.9, beta
     update = learning_rate * m_hat / (np.sqrt(v_hat) + epsilon)
     return update, m_new, v_new
 
-def optimize_l2_logit(D, V, adj_matrix, spatial_weight=0.1, max_iterations=100, learning_rate=0.01, rng=None, use_adam=True):
-    """Optimize using gradient descent with L2 loss in logit space."""
+def optimize_l2_logit(
+    D, V, adj_matrix,
+    spatial_weight=0.1,
+    max_iterations=100,
+    learning_rate=0.01,
+    rng=None,
+    use_adam=True,
+    low_pop_threshold=10.0,
+    last_n_avg=20,
+    prior_blend=False,
+):
+    """Optimize using gradient descent with L2 loss in logit space.
+    For low-pop (precinct, demo) cells, output uses last-N-iter average (and optional prior blend).
+    """
     if rng is None:
         rng = np.random.default_rng(42)
     
     num_precincts, num_demos = D.shape
     num_vote_types = len(VOTE_TYPES)
+    
+    low_pop_mask = (D < low_pop_threshold)
+    n_low_pop = int(np.sum(low_pop_mask))
+    use_low_pop_logic = (last_n_avg > 0) and (n_low_pop > 0)
     
     # Initialize
     logits = initialize_logits(num_precincts, num_demos, num_vote_types, rng)
@@ -227,9 +244,12 @@ def optimize_l2_logit(D, V, adj_matrix, spatial_weight=0.1, max_iterations=100, 
     v = np.zeros_like(logits_flat)
     
     history = []
+    buf = [None] * last_n_avg if use_low_pop_logic else None
     
     print(f"\nStarting L2 optimization in logit space...")
     print(f"Spatial weight: {spatial_weight}, Learning rate: {learning_rate}, Optimizer: {'Adam' if use_adam else 'SGD'}")
+    if use_low_pop_logic:
+        print(f"Low-pop: threshold={low_pop_threshold}, last_n_avg={last_n_avg}, prior_blend={prior_blend}, low-pop cells={n_low_pop}")
     
     for iteration in tqdm(range(1, max_iterations + 1), desc="Optimization"):
         # Compute loss and gradient
@@ -247,9 +267,17 @@ def optimize_l2_logit(D, V, adj_matrix, spatial_weight=0.1, max_iterations=100, 
         else:
             logits_flat = logits_flat - learning_rate * grad
         
+        # p every iter when using last-N buffer
+        if use_low_pop_logic:
+            logits = logits_flat.reshape(num_precincts, num_demos, num_vote_types)
+            p = logits_to_probs(logits)
+            slot = (iteration - 1) % last_n_avg
+            buf[slot] = p.copy()
+        
         # Store history
         if iteration % 10 == 0 or iteration == 1:
-            logits = logits_flat.reshape(num_precincts, num_demos, num_vote_types)
+            if not use_low_pop_logic:
+                logits = logits_flat.reshape(num_precincts, num_demos, num_vote_types)
             U = compute_U_from_logits(logits, D)
             
             U_total = U.sum(axis=0)
@@ -274,17 +302,49 @@ def optimize_l2_logit(D, V, adj_matrix, spatial_weight=0.1, max_iterations=100, 
     logits = logits_flat.reshape(num_precincts, num_demos, num_vote_types)
     p = logits_to_probs(logits)
     
-    return p, logits, history
+    if not use_low_pop_logic:
+        return p, logits, history
+    
+    # Post-process: prior, last-N avg, optional blend for low-pop
+    prior = np.mean(p, axis=0)
+    p_out = np.copy(p)
+    valid_buf = [b for b in buf if b is not None]
+    n_stored = len(valid_buf)
+    
+    print(f"  Low-pop post-process: averaged over last {n_stored} iters for {n_low_pop} cells")
+    print("  Demographic prior (mean p over precincts):")
+    for demo_idx, demo in enumerate(DEMOGRAPHICS):
+        row = prior[demo_idx, :]
+        print(f"    {demo}: D={row[0]:.4f}, R={row[1]:.4f}, O={row[2]:.4f}, N={row[3]:.4f}")
+    
+    for i in range(num_precincts):
+        for demo_idx in range(num_demos):
+            if not low_pop_mask[i, demo_idx]:
+                continue
+            p_avg = np.mean([b[i, demo_idx, :] for b in valid_buf], axis=0)
+            if prior_blend:
+                alpha = np.clip(1.0 - (D[i, demo_idx] / (low_pop_threshold + EPSILON)), 0.0, 1.0)
+                p_out[i, demo_idx, :] = (1.0 - alpha) * p_avg + alpha * prior[demo_idx, :]
+            else:
+                p_out[i, demo_idx, :] = p_avg
+    
+    return p_out, logits, history
 
 def main():
     parser = argparse.ArgumentParser(description="L2 optimization in logit space for MLE")
     parser.add_argument("main_data_csv", help="Path to main data CSV")
-    parser.add_argument("graph_file", help="Path to graph gpickle file")
+    parser.add_argument("graph_file", help="Path to graph gpickle (GEOID-based; use blockgroups_graph_correct.gpickle for all-NY)")
     parser.add_argument("--spatial-weight", type=float, default=0.1, help="Weight for spatial smoothing")
     parser.add_argument("--learning-rate", type=float, default=0.01, help="Learning rate")
     parser.add_argument("--iterations", type=int, default=100, help="Number of iterations")
-    parser.add_argument("--output", default="mle_l2_logit_results.csv", help="Output CSV file")
+    parser.add_argument("--output", default="output/mle_l2_logit_results.csv", help="Output CSV file")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--low-pop-threshold", type=float, default=10.0,
+                        help="D[i,demo] below this is low-pop; use last-N avg (and optional prior blend). Compared to cvap (default: 10)")
+    parser.add_argument("--last-n-avg", type=int, default=20,
+                        help="For low-pop cells, output = mean of p over last N iters. 0 = disabled (default: 20)")
+    parser.add_argument("--prior-blend", action="store_true",
+                        help="Blend last-N avg with demographic prior for low-pop; alpha increases as D decreases")
     args = parser.parse_args()
     
     rng = np.random.default_rng(args.seed)
@@ -296,6 +356,11 @@ def main():
     graph_nodes = {f"1500000US{node}" for node in G.nodes()}
     df_nodes = set(df.index)
     node_list = sorted(list(graph_nodes.intersection(df_nodes)))
+    if not node_list:
+        raise SystemExit(
+            "No block groups overlap between data and graph. "
+            "Use a GEOID-based graph (e.g. output/blockgroups_graph.gpickle or blockgroups_graph_correct.gpickle) that matches your data."
+        )
     df = df.loc[node_list]
     
     adj_matrix = nx.to_scipy_sparse_array(
@@ -312,10 +377,16 @@ def main():
         spatial_weight=args.spatial_weight,
         max_iterations=args.iterations,
         learning_rate=args.learning_rate,
-        rng=rng
+        rng=rng,
+        low_pop_threshold=args.low_pop_threshold,
+        last_n_avg=args.last_n_avg,
+        prior_blend=args.prior_blend,
     )
     
     # Save results
+    outdir = os.path.dirname(args.output)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     print(f"\nSaving results to {args.output}...")
     result_df = df.copy()
     

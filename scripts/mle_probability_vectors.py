@@ -531,11 +531,11 @@ def main():
         epilog="""
 Examples:
   # First, generate the prepared data and graph files (if not already created):
-  python prepare_data.py <input_data> <output_prepared_data.feather>
-  python graph.py <shapefile> <output_graph.gpickle>
-  
+  python scripts/prepare_data.py <input_data> <graph> output/data.feather
+  python scripts/graph.py <geofile> --graph_out output/blockgroups_graph.gpickle
+
   # Then run this script:
-  python mle_probability_vectors.py prepared_data.feather blockgroups_graph.gpickle --output results.csv
+  python scripts/mle_probability_vectors.py <prepared.feather> <graph> --output output/results.csv
         """
     )
     parser.add_argument(
@@ -559,8 +559,8 @@ Examples:
         help="Gradient norm clip threshold for stability (default: 5.0)."
     )
     parser.add_argument(
-        "--output", default="mle_probability_vectors.csv",
-        help="Output CSV file path (default: mle_probability_vectors.csv)."
+        "--output", default="output/mle_probability_vectors.csv",
+        help="Output CSV file path (default: output/mle_probability_vectors.csv)."
     )
     parser.add_argument(
         "--seed", type=int, default=42,
@@ -576,10 +576,10 @@ Examples:
     print("  1. Prepared data file (feather format) from prepare_data.py")
     print("  2. Graph file (gpickle format) from graph.py")
     print("\nTo generate these files, run:")
-    print("  python prepare_data.py <input_data> <output_prepared_data.feather>")
-    print("  python graph.py <shapefile> <output_graph.gpickle>")
+    print("  python scripts/prepare_data.py <input_data> <graph> output/data.feather")
+    print("  python scripts/graph.py <geofile> --graph_out output/blockgroups_graph.gpickle")
     print("\nThen run this script with:")
-    print(f"  python mle_probability_vectors.py {args.prepared_data} {args.graph_file}")
+    print(f"  python scripts/mle_probability_vectors.py {args.prepared_data} {args.graph_file}")
     print("=" * 70)
     print()
     
@@ -650,6 +650,9 @@ Examples:
             col_name = f"{vote_type}_{demo}_prob"
             result_df[col_name] = p_final[:, demo_idx, vote_idx]
     
+    outdir = os.path.dirname(args.output)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     result_df.reset_index().to_csv(args.output, index=False)
     
     print("\n--- Success! ---")

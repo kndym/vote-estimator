@@ -10,10 +10,11 @@ Uses fundamental circuit basis matrices (cycles) to maintain sum constraints and
 - Output:
     - CSV file with vote count estimates for each demographic and vote type
 """
+import argparse
+import os
+import pickle
 import pandas as pd
 import numpy as np
-import argparse
-import pickle
 import networkx as nx
 from scipy.sparse import csr_matrix
 from tqdm import tqdm
@@ -648,13 +649,13 @@ def main():
         "--convergence-threshold", type=float, default=1e-6, help="Convergence threshold for cost change."
     )
     parser.add_argument(
-        "--output", default="estimates.csv", help="Path for output CSV file."
+        "--output", default="output/estimates.csv", help="Path for output CSV file."
     )
     parser.add_argument(
         "--diagnostic-mode", action="store_true", help="Enable comprehensive diagnostic tracking."
     )
     parser.add_argument(
-        "--diagnostic-output", default="diagnostics.csv", help="Path for diagnostic output CSV file."
+        "--diagnostic-output", default="output/diagnostics.csv", help="Path for diagnostic output CSV file."
     )
     parser.add_argument(
         "--diagnostic-interval", type=int, default=10, help="Print diagnostics every N iterations."
@@ -712,6 +713,9 @@ def main():
     
     # Save diagnostics if enabled
     if args.diagnostic_mode and diagnostic_history:
+        ddir = os.path.dirname(args.diagnostic_output)
+        if ddir:
+            os.makedirs(ddir, exist_ok=True)
         diagnostic_df = pd.DataFrame(diagnostic_history)
         diagnostic_df.to_csv(args.diagnostic_output, index=False)
         print(f"\nDiagnostics saved to {args.diagnostic_output}")
@@ -740,6 +744,9 @@ def main():
             output_data[f'prob_{vtype}_{demo}'] = prob_array
     
     # Save to CSV
+    outdir = os.path.dirname(args.output)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
     output_df = pd.DataFrame(output_data)
     output_df.to_csv(args.output, index=False)
     print(f"\nOutput saved to {args.output}")
